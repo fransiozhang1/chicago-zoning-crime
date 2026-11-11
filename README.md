@@ -25,6 +25,8 @@ npm run dev
 
 Open `http://127.0.0.1:3000/` for desktop or `/mobile.html` for the mobile interface. Run `npm run check` for TypeScript checking and `npm run build` to generate both pages in `apps/simulation-platform/dist/`. The demo uses bundled inputs. Online basemaps or optional live layers may require an internet connection.
 
+The deployed versions are [desktop](https://weiyuzhang.space/research/chicago-zoning-crime/simulation/) and [mobile](https://weiyuzhang.space/research/chicago-zoning-crime/simulation/mobile/). The `portfolio` Vite mode builds for that subpath and uses a same-origin CARTO tile endpoint. The site keeps the authorized key in its Worker binding. The default Vite mode retains root paths for the standalone web and Android builds.
+
 ## Try the data handoff
 
 Python 3.11 or newer is sufficient for this command, which uses the standard library:

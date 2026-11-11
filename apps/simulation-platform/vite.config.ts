@@ -3,8 +3,9 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
   return {
+    base: mode === 'portfolio' ? '/research/chicago-zoning-crime/simulation/' : '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

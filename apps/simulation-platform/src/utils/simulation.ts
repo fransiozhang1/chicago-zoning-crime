@@ -109,12 +109,12 @@ function isSegmentClearOfBuildings(a: Vector2D, b: Vector2D, buildings: Building
   return !buildings.some(building => !building.isPark && isLineOfSightBlocked(a, b, building));
 }
 
-function getDistanceToRoadGrid(point: Vector2D, grid: StreetGrid): number {
+function getDistanceToRoadGrid(point: Vector2D, grid: StreetGrid, nodes: Map<string, StreetNode>): number {
   let minDist = Infinity;
 
   for (const edge of grid.edges) {
-    const fromNode = grid.nodes.find(n => n.id === edge.from);
-    const toNode = grid.nodes.find(n => n.id === edge.to);
+    const fromNode = nodes.get(edge.from);
+    const toNode = nodes.get(edge.to);
     if (!fromNode || !toNode) continue;
     minDist = Math.min(minDist, pointToSegmentDistance(point, fromNode.position, toNode.position));
   }
@@ -126,11 +126,6 @@ function getDistanceToRoadGrid(point: Vector2D, grid: StreetGrid): number {
   }
 
   return minDist;
-}
-
-function isWalkablePoint(point: Vector2D, grid: StreetGrid, parks: Building[]): boolean {
-  if (parks.some(park => isPointInPolygon(point, park.polygon))) return true;
-  return getDistanceToRoadGrid(point, grid) <= WALKABLE_ROAD_RADIUS;
 }
 
 function buildAugmentedWalkableGraph(
@@ -262,6 +257,9 @@ export function isLineOfSightBlocked(
   start: Vector2D, end: Vector2D, building: Building
 ): boolean {
   const pts = building.polygon;
+  const bounds = boundsOf(pts);
+  if (Math.max(start.x, end.x) < bounds.minX || Math.min(start.x, end.x) > bounds.maxX
+      || Math.max(start.y, end.y) < bounds.minY || Math.min(start.y, end.y) > bounds.maxY) return false;
   for (let i = 0; i < pts.length; i++) {
     const nextIdx = (i + 1) % pts.length;
     if (lineSegmentsIntersect(start, end, pts[i], pts[nextIdx])) {
@@ -949,6 +947,91 @@ export function hasClearLineOfSight(
   return true;
 }
 
+type HeatmapSample = Vector2D & { density: number; insidePark: boolean };
+type HeatmapGeometry = {
+  width: number;
+  height: number;
+  gridSpacing: number;
+  outlineCoords: Coordinate[];
+  bbox: typeof BOUNDING_BOX;
+  roadGrid: StreetGrid;
+  points: HeatmapSample[];
+  lighting?: { lights: Streetlight[]; values: number[] };
+  canopy?: { trees: Tree[]; values: number[] };
+};
+
+// The app replaces scene arrays when geometry, lights or trees change.
+const heatmapGeometry = new WeakMap<Building[], HeatmapGeometry>();
+const buildingBounds = new WeakMap<Vector2D[], { minX: number; minY: number; maxX: number; maxY: number }>();
+
+function boundsOf(polygon: Vector2D[]) {
+  const prior = buildingBounds.get(polygon);
+  if (prior) return prior;
+  const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  for (const { x, y } of polygon) {
+    bounds.minX = Math.min(bounds.minX, x);
+    bounds.maxX = Math.max(bounds.maxX, x);
+    bounds.minY = Math.min(bounds.minY, y);
+    bounds.maxY = Math.max(bounds.maxY, y);
+  }
+  buildingBounds.set(polygon, bounds);
+  return bounds;
+}
+
+function getHeatmapGeometry(
+  width: number, height: number, gridSpacing: number, buildings: Building[],
+  outlineCoords: Coordinate[], bbox: typeof BOUNDING_BOX,
+): HeatmapGeometry {
+  const roadGrid = getRoadGrid(width, height, 40, outlineCoords, bbox);
+  const prior = heatmapGeometry.get(buildings);
+  if (prior && prior.width === width && prior.height === height && prior.gridSpacing === gridSpacing
+      && prior.outlineCoords === outlineCoords && prior.bbox === bbox && prior.roadGrid === roadGrid) return prior;
+  const outline = outlineCoords.map(point => projectCoordinate(point, width, height, 40, bbox));
+  const { minX, maxX, minY, maxY } = boundsOf(outline);
+  const parks = getParkBuildings(buildings);
+  const nodes = new Map(roadGrid.nodes.map(node => [node.id, node]));
+  const footprints = buildings.filter(building => !building.isPark).map(building => ({
+    building,
+    bounds: boundsOf(building.polygon),
+    multiplier: 0.4 + 0.35 * clamp((building.height || 0) / 50, 0, 1)
+      + 0.25 * clamp((building.density || 1) / 3, 0, 1),
+  }));
+  const points: HeatmapSample[] = [];
+  for (let x = minX; x <= maxX; x += gridSpacing) {
+    for (let y = minY; y <= maxY; y += gridSpacing) {
+      const point = { x, y };
+      if (!isPointInPolygon(point, outline)) continue;
+      const insidePark = parks.some(park => isPointInPolygon(point, park.polygon));
+      if (!insidePark && !(getDistanceToRoadGrid(point, roadGrid, nodes) <= WALKABLE_ROAD_RADIUS)) continue;
+      let density = 0;
+      let insideBuilding = false;
+      for (const { building, bounds, multiplier } of footprints) {
+        if (x + 40 < bounds.minX || x - 40 > bounds.maxX || y + 40 < bounds.minY || y - 40 > bounds.maxY) continue;
+        const distance = pointToBuildingDistance(point, building);
+        if (distance < 3) {
+          insideBuilding = true;
+          break;
+        }
+        if (distance < 40) density += (1 - distance / 40) * multiplier;
+      }
+      if (!insideBuilding) points.push({ ...point, insidePark, density: Math.min(1, density / 3) });
+    }
+  }
+  const result = { width, height, gridSpacing, outlineCoords, bbox, roadGrid, points };
+  heatmapGeometry.set(buildings, result);
+  return result;
+}
+
+function canopyAtPoint(point: Vector2D, trees: Tree[]): number {
+  let cover = 0;
+  for (const tree of trees) {
+    const radius = tree.canopyRadius * 1.5;
+    const distance = Math.hypot(point.x - tree.position.x, point.y - tree.position.y);
+    if (distance < radius) cover += 1 - distance / radius;
+  }
+  return Math.min(1, cover);
+}
+
 // Reverse analysis: calculate crime risk heatmap across grid coordinates
 export function generateHeatmap(
   width: number, height: number, gridSpacing: number,
@@ -960,19 +1043,9 @@ export function generateHeatmap(
   environmentalIndices: EnvironmentalIndex[] = []
 ): HeatmapCell[] {
   const heatmap: HeatmapCell[] = [];
-  const outline = outlineCoords.map(c => projectCoordinate(c, width, height, 40, bbox));
-  
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  outline.forEach(p => {
-    if (p.x < minX) minX = p.x;
-    if (p.x > maxX) maxX = p.x;
-    if (p.y < minY) minY = p.y;
-    if (p.y > maxY) maxY = p.y;
-  });
-
   // Extract weight configuration factors
   const getWeight = (key: string): number => weights.find(w => w.key === key)?.weight ?? 0;
-  
+
   const wLight = getWeight('light');
   const wBystander = getWeight('bystander');
   const wCriminal = getWeight('criminal');
@@ -980,156 +1053,118 @@ export function generateHeatmap(
   const wDensity = getWeight('density');
   const nightActivity = getCriminalActivityFactorAtHour(simHour);
   const daylightFactor = getDaylightFactorAtHour(simHour);
-  const roadGrid = getRoadGrid(width, height, 40, outlineCoords, bbox);
-  const parks = getParkBuildings(buildings);
-  
+  const geometry = getHeatmapGeometry(width, height, gridSpacing, buildings, outlineCoords, bbox);
+  const lightsOff = areStreetlightsDaytimeOff(simHour);
+  if (!lightsOff && geometry.lighting?.lights !== streetlights) {
+    geometry.lighting = { lights: streetlights, values: geometry.points.map(point => getIlluminationAtPoint(point, streetlights)) };
+  }
+  if (geometry.canopy?.trees !== trees) {
+    geometry.canopy = { trees, values: geometry.points.map(point => canopyAtPoint(point, trees)) };
+  }
+
   const residents = agents.filter(a => a.active && a.type === 'resident');
   const criminals = agents.filter(a => a.active && a.type === 'criminal');
 
-  for (let x = minX; x <= maxX; x += gridSpacing) {
-    for (let y = minY; y <= maxY; y += gridSpacing) {
-      const p = { x, y };
-      
-      // Only check points inside the neighborhood
-      if (!isPointInPolygon(p, outline)) continue;
-      if (!isWalkablePoint(p, roadGrid, parks)) continue;
-      
-      // Only evaluate street level (do not evaluate risks inside buildings)
-      let insideBuilding = false;
-      let nearBuildingDensity = 0;
-      for (let b of buildings) {
-        if (b.isPark) continue;
-        const d = pointToBuildingDistance(p, b);
-        if (d < 3) {
-          insideBuilding = true;
-          break;
-        }
-        if (d < 40) {
-          // Building impact now scales with height and density, not just proximity
-          const heightFactor = Math.min(1.0, Math.max(0, (b.height || 0) / 50));
-          const densityFactor = Math.min(1.0, Math.max(0, (b.density || 1) / 3));
-          const buildingMultiplier = 0.4 + 0.35 * heightFactor + 0.25 * densityFactor;
-          nearBuildingDensity += (1 - d / 40) * buildingMultiplier;
-        }
-      }
-      
-      if (insideBuilding) continue;
+  const indicatorRiskFactor = buildIndicatorRiskFactor(environmentalIndices);
+  const liveCriminalPressure = criminals.length > 0
+    ? clamp(criminals.length / Math.max(1, residents.length + criminals.length), 0, 0.55)
+    : 0;
 
-      // 1. Calculate Local Illumination
-      const illumination = getIlluminationAtPoint(p, streetlights, simHour);
-      
-      // 2. Bystander Surveillance: can active residents see this coordinate?
-      let bystanderEyes = 0;
-      residents.forEach(r => {
-        const d = Math.hypot(p.x - r.position.x, p.y - r.position.y);
-        if (d < r.visionRange) {
-          // Check line-of-sight angle limits (vision cone)
-          const angleToPoint = Math.atan2(p.y - r.position.y, p.x - r.position.x);
-          let diff = Math.abs(angleToPoint - r.angle);
-          if (diff > Math.PI) diff = Math.PI * 2 - diff;
-          
-          const fovRad = (r.visionAngle * Math.PI) / 180;
-          if (diff < fovRad / 2) {
-            // Check building occlusion
-            if (hasClearLineOfSight(r.position, p, buildings)) {
-              // Tree foliage attenuates sight slightly
-              const leafClog = getTreeFoliageObscurity(r.position, p, trees);
-              bystanderEyes += (1.0 - d / r.visionRange) * leafClog;
-            }
+  for (const [index, p] of geometry.points.entries()) {
+    const { x, y } = p;
+    const illumination = lightsOff ? 0 : geometry.lighting!.values[index];
+
+    // 2. Bystander Surveillance: can active residents see this coordinate?
+    let bystanderEyes = 0;
+    residents.forEach(r => {
+      const d = Math.hypot(p.x - r.position.x, p.y - r.position.y);
+      if (d < r.visionRange) {
+        // Check line-of-sight angle limits (vision cone)
+        const angleToPoint = Math.atan2(p.y - r.position.y, p.x - r.position.x);
+        let diff = Math.abs(angleToPoint - r.angle);
+        if (diff > Math.PI) diff = Math.PI * 2 - diff;
+
+        const fovRad = (r.visionAngle * Math.PI) / 180;
+        if (diff < fovRad / 2) {
+          // Check building occlusion
+          if (hasClearLineOfSight(r.position, p, buildings)) {
+            // Tree foliage attenuates sight slightly
+            const leafClog = getTreeFoliageObscurity(r.position, p, trees);
+            bystanderEyes += (1.0 - d / r.visionRange) * leafClog;
           }
         }
-      });
-      bystanderEyes = Math.min(1.0, bystanderEyes);
+      }
+    });
+    bystanderEyes = Math.min(1.0, bystanderEyes);
 
-      // 3. Criminal Sight Field: can criminals monitor this location?
-      let criminalEyes = 0;
-      criminals.forEach(c => {
-        const d = Math.hypot(p.x - c.position.x, p.y - c.position.y);
-        if (d < c.visionRange) {
-          const angleToPoint = Math.atan2(p.y - c.position.y, p.x - c.position.x);
-          let diff = Math.abs(angleToPoint - c.angle);
-          if (diff > Math.PI) diff = Math.PI * 2 - diff;
-          
-          const fovRad = (c.visionAngle * Math.PI) / 180;
-          if (diff < fovRad / 2) {
-            if (hasClearLineOfSight(c.position, p, buildings)) {
-              const leafClog = getTreeFoliageObscurity(c.position, p, trees);
-              criminalEyes += (1.0 - d / c.visionRange) * leafClog;
-            }
+    // 3. Criminal Sight Field: can criminals monitor this location?
+    let criminalEyes = 0;
+    criminals.forEach(c => {
+      const d = Math.hypot(p.x - c.position.x, p.y - c.position.y);
+      if (d < c.visionRange) {
+        const angleToPoint = Math.atan2(p.y - c.position.y, p.x - c.position.x);
+        let diff = Math.abs(angleToPoint - c.angle);
+        if (diff > Math.PI) diff = Math.PI * 2 - diff;
+
+        const fovRad = (c.visionAngle * Math.PI) / 180;
+        if (diff < fovRad / 2) {
+          if (hasClearLineOfSight(c.position, p, buildings)) {
+            const leafClog = getTreeFoliageObscurity(c.position, p, trees);
+            criminalEyes += (1.0 - d / c.visionRange) * leafClog;
           }
         }
-      });
-      criminalEyes = Math.min(1.0, criminalEyes);
-
-      // 4. Canopy Density Cover / Hiding Factor
-      let canopyCover = 0;
-      trees.forEach(t => {
-        const d = Math.hypot(p.x - t.position.x, p.y - t.position.y);
-        if (d < t.canopyRadius * 1.5) {
-          canopyCover += (1.0 - d / (t.canopyRadius * 1.5));
-        }
-      });
-      canopyCover = Math.min(1.0, canopyCover);
-
-      // ── Criminal proximity bonus ──────────────────────────
-      let criminalProximityBonus = 0;
-      let minCriminalDist = Infinity;
-      const activeCriminals = criminals.filter(c => c.active);
-      for (const c of activeCriminals) {
-        const d = Math.hypot(p.x - c.position.x, p.y - c.position.y);
-        if (d < minCriminalDist) minCriminalDist = d;
       }
-      if (minCriminalDist < 90) {
-        criminalProximityBonus = (1 - minCriminalDist / 90) * (0.08 + nightActivity * 0.18);
-      }
+    });
+    criminalEyes = Math.min(1.0, criminalEyes);
 
-      // ── Park risk bonus ──────────────────────────────────
-      let parkRiskBonus = 0;
-      for (const park of parks) {
-        if (isPointInPolygon(p, park.polygon)) {
-          parkRiskBonus = 0.04 + nightActivity * 0.07;
-          break;
-        }
-      }
+    // 4. Canopy Density Cover / Hiding Factor
+    const canopyCover = geometry.canopy.values[index];
 
-      const normalizedDensity = Math.min(1.0, nearBuildingDensity / 3.0);
-      const darkness = (1 - illumination) * (1 - daylightFactor * 0.92);
-      const surveillanceGap = 1 - bystanderEyes;
-
-      const weightedRiskNumerator =
-        darkness * wLight * (0.12 + (1 - daylightFactor) * 0.78) +
-        surveillanceGap * wBystander * 1.0 +
-        criminalEyes * wCriminal * 0.95 +
-        canopyCover * wTree * 0.55 +
-        normalizedDensity * wDensity * 1.2;
-      const weightedRiskDenominator =
-        wLight * (0.12 + (1 - daylightFactor) * 0.78) +
-        wBystander * 1.0 +
-        wCriminal * 0.95 +
-        wTree * 0.55 +
-        wDensity * 1.2;
-
-      const factorRisk = weightedRiskDenominator > 0
-        ? weightedRiskNumerator / weightedRiskDenominator
-        : 0;
-      const baseVal = 0.025 + nightActivity * 0.14 - daylightFactor * 0.04;
-      const liveCriminalPressure = criminals.length > 0 ? clamp(criminals.length / Math.max(1, residents.length + criminals.length), 0, 0.55) : 0;
-
-      // Environmental indicator risk factor from spatial features (NSI, SAI, SEI, etc.)
-      const indicatorRiskFactor = buildIndicatorRiskFactor(environmentalIndices);
-
-      let risk = (baseVal + factorRisk * (0.56 + nightActivity * 0.22 - daylightFactor * 0.08) + liveCriminalPressure * 0.18 + criminalProximityBonus + parkRiskBonus) * indicatorRiskFactor;
-      risk = Math.max(0.01, Math.min(0.99, risk));
-
-      heatmap.push({
-        x,
-        y,
-        risk,
-        illumination,
-        bystanderEyes,
-        criminalEyes
-      });
+    // ── Criminal proximity bonus ──────────────────────────
+    let criminalProximityBonus = 0;
+    let minCriminalDist = Infinity;
+    for (const c of criminals) {
+      const d = Math.hypot(p.x - c.position.x, p.y - c.position.y);
+      if (d < minCriminalDist) minCriminalDist = d;
     }
+    if (minCriminalDist < 90) {
+      criminalProximityBonus = (1 - minCriminalDist / 90) * (0.08 + nightActivity * 0.18);
+    }
+
+    // ── Park risk bonus ──────────────────────────────────
+    const parkRiskBonus = p.insidePark ? 0.04 + nightActivity * 0.07 : 0;
+    const darkness = (1 - illumination) * (1 - daylightFactor * 0.92);
+    const surveillanceGap = 1 - bystanderEyes;
+
+    const weightedRiskNumerator =
+      darkness * wLight * (0.12 + (1 - daylightFactor) * 0.78) +
+      surveillanceGap * wBystander * 1.0 +
+      criminalEyes * wCriminal * 0.95 +
+      canopyCover * wTree * 0.55 +
+      p.density * wDensity * 1.2;
+    const weightedRiskDenominator =
+      wLight * (0.12 + (1 - daylightFactor) * 0.78) +
+      wBystander * 1.0 +
+      wCriminal * 0.95 +
+      wTree * 0.55 +
+      wDensity * 1.2;
+
+    const factorRisk = weightedRiskDenominator > 0
+      ? weightedRiskNumerator / weightedRiskDenominator
+      : 0;
+    const baseVal = 0.025 + nightActivity * 0.14 - daylightFactor * 0.04;
+
+    let risk = (baseVal + factorRisk * (0.56 + nightActivity * 0.22 - daylightFactor * 0.08) + liveCriminalPressure * 0.18 + criminalProximityBonus + parkRiskBonus) * indicatorRiskFactor;
+    risk = Math.max(0.01, Math.min(0.99, risk));
+
+    heatmap.push({
+      x,
+      y,
+      risk,
+      illumination,
+      bystanderEyes,
+      criminalEyes
+    });
   }
 
   return heatmap;

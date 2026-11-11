@@ -205,12 +205,19 @@ export default function MapCanvas({
       const lng = isNaN(c.lng) ? -87.61069 : c.lng;
       map = L.map(mapContainerRef.current, {
         center: [lat, lng], zoom: 16, zoomControl: false,
-        attributionControl: false, maxZoom: 19, minZoom: 14,
+        attributionControl: true, maxZoom: 19, minZoom: 14,
         zoomSnap: 0.25, zoomDelta: 0.35, wheelPxPerZoomLevel: 180,
       });
     } catch { return; }
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(map);
+    const tileUrl = import.meta.env.MODE === 'portfolio'
+      ? '/api/chicago/basemap/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+    L.tileLayer(tileUrl, {
+      maxZoom: 20,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> &copy; <a href="https://carto.com/">CARTO</a>',
+    }).addTo(map);
+    map.attributionControl.setPrefix(false);
     if (!hideZoomControls) {
       L.control.zoom({ position: 'topright' }).addTo(map);
     }
@@ -330,7 +337,11 @@ export default function MapCanvas({
       setHoverPastCrime(null); setHoverEnvironmentalIndex(null); setHoverBuilding(null);
     });
 
-    return () => { map.remove(); mapRef.current = null; };
+    return () => {
+      if (moveTimer) clearTimeout(moveTimer);
+      map.remove();
+      mapRef.current = null;
+    };
   }, []);
 
   // Helper: scene → screen, needs current map
@@ -367,8 +378,16 @@ export default function MapCanvas({
 
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.min(window.devicePixelRatio || 1, 1.25);
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    const pixelWidth = Math.floor(rect.width * dpr);
+    const pixelHeight = Math.floor(rect.height * dpr);
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+    } else if (typeof ctx.reset === 'function') {
+      ctx.reset();
+    } else {
+      canvas.width = pixelWidth;
+    }
     // CRITICAL FIX: use setTransform to reset every frame, NOT ctx.scale (which accumulates)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, rect.width, rect.height);
