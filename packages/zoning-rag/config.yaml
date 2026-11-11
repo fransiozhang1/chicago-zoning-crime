@@ -1,0 +1,18 @@
+documents_dir: ./data/raw_documents
+storage_dir: ./storage
+
+retrieval:
+  top_k: 8
+
+embedding:
+  model_name: BAAI/bge-small-en-v1.5
+
+llm:
+  provider: deepseek
+  model: deepseek-chat
+  api_key_env: DEEPSEEK_API_KEY
+  base_url: https://api.deepseek.com
+
+outputs:
+  retrieval_csv: ./outputs/retrieval/single_query_results.csv
+  tables_dir: ./outputs/tables

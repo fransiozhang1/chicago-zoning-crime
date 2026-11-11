@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.DS_Store
+storage/
+outputs/
+data/raw_documents/*
+!data/raw_documents/.gitkeep
+*.pdf
+*.docx
+*.zip
+
+# input data (CSV / derived files)
+Boundaries_Zoning_filtered.csv
+zoning_parameters_for_extraction.csv
+zone_classes.txt
+
+# ad-hoc verification / one-off scripts
+check_empty.py
+check_filled.py
+src/fill_missing_parameters.py
+src/fill_pd_unknown.py
+src/retry_special_use.py

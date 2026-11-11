@@ -1,0 +1,6 @@
+{
+  "name": "街区犯罪模拟平台",
+  "description": "基于参数化街区形态、环境照度（路灯及树木覆盖）以及居民与罪犯视线分析的街区犯罪风险高阶模拟与逆向推理平台。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

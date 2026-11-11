@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Chicago Crime Sim</string>
+    <string name="title_activity_main">Chicago Crime Sim</string>
+    <string name="package_name">com.chicago.crimesim</string>
+    <string name="custom_url_scheme">com.chicago.crimesim</string>
+</resources>

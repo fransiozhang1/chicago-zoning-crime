@@ -1,0 +1,9 @@
+{
+  "name": "chicago-zoning-crime-research",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix apps/simulation-platform run dev -- --host 127.0.0.1",
+    "build": "npm --prefix apps/simulation-platform run build",
+    "check": "npm --prefix apps/simulation-platform run lint"
+  }
+}

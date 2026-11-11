@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Road Network Editor – Tract 4207</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body, #map { width:100%; height:100vh; }
+
+  .toolbar {
+    position:absolute; top:10px; left:10px; z-index:1000;
+    background: rgba(0,0,0,0.8); border-radius:8px;
+    padding:10px; display:flex; gap:8px; flex-wrap:wrap;
+    max-width: 600px;
+  }
+  .toolbar button {
+    padding:8px 14px; border:none; border-radius:5px;
+    font-size:13px; cursor:pointer; font-weight:600;
+    transition: all 0.15s; white-space:nowrap;
+  }
+  .toolbar button:hover { filter:brightness(1.15); }
+  .toolbar button:active { transform:scale(0.96); }
+  .btn-draw { background:#22c55e; color:#fff; }
+  .btn-draw.active { background:#ef4444; }
+  .btn-undo { background:#f59e0b; color:#fff; }
+  .btn-clear { background:#6b7280; color:#fff; }
+  .btn-export { background:#3b82f6; color:#fff; }
+  .btn-load { background:#8b5cf6; color:#fff; }
+
+  .info-bar {
+    position:absolute; bottom:12px; left:12px; z-index:1000;
+    background: rgba(0,0,0,0.75); color:#e2e8f0;
+    border-radius:6px; padding:6px 12px; font-size:12px;
+    font-family: monospace; pointer-events:none;
+  }
+
+  .snap-indicator {
+    position:absolute; z-index:999;
+    pointer-events:none;
+    border:2px solid #22d3ee; border-radius:50%;
+    background: rgba(34,211,238,0.15);
+    display:none;
+  }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <button id="btnDraw" class="btn-draw" onclick="toggleDrawMode()">Start Drawing</button>
+  <button class="btn-undo" onclick="undoLast()">Undo Last</button>
+  <button class="btn-clear" onclick="clearAll()">Clear All</button>
+  <button class="btn-load" onclick="importJSON()">Import JSON</button>
+  <button class="btn-export" onclick="exportJSON()">Export JSON</button>
+  <span style="color:#e2e8f0;font-size:12px;align-self:center;margin-left:4px;">
+    Click = add node &nbsp;|&nbsp; DblClick = finish road &nbsp;|&nbsp; SNAP = green glow
+  </span>
+</div>
+<div class="info-bar" id="infoBar">Nodes: 0 &nbsp;|&nbsp; Roads: 0 &nbsp;|&nbsp; Edge count: 0</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════
+//  Tract 4207 (420700) – South Shore / Woodlawn (Hyde Park South)
+//  Extracted from src/constants/tracts.ts
+// ═══════════════════════════════════════════════════════════
+const BOUNDING_BOX = {
+  minLng: -87.6156, maxLng: -87.6058,
+  minLat:  41.7730, maxLat:  41.7804,
+};
+
+const TRACT_OUTLINE = [
+  [-87.61545,41.77297],[-87.615459,41.773333],[-87.615462,41.773424],[-87.615483,41.774422],
+  [-87.615492,41.774786],[-87.615494,41.774883],[-87.615502,41.775227],[-87.615527,41.776259],
+  [-87.615536,41.776604],[-87.615540,41.776785],[-87.615554,41.777330],[-87.615559,41.777512],
+  [-87.615563,41.777694],[-87.615577,41.778240],[-87.615582,41.778423],[-87.615590,41.778786],
+  [-87.615613,41.779725],[-87.615615,41.779824],[-87.615615,41.779875],[-87.615620,41.780131],
+  [-87.615622,41.780239],[-87.615379,41.780243],[-87.614653,41.780256],[-87.614411,41.780261],
+  [-87.614170,41.780265],[-87.613446,41.780277],[-87.613206,41.780282],[-87.612969,41.780286],
+  [-87.612259,41.780298],[-87.612023,41.780303],[-87.611778,41.780307],[-87.611046,41.780320],
+  [-87.610802,41.780325],[-87.610557,41.780329],[-87.609824,41.780342],[-87.609580,41.780347],
+  [-87.609341,41.780351],[-87.608624,41.780363],[-87.608386,41.780368],[-87.608146,41.780372],
+  [-87.607428,41.780386],[-87.607189,41.780391],[-87.606937,41.780394],[-87.606605,41.780399],
+  [-87.606181,41.780405],[-87.605930,41.780410],[-87.605928,41.780338],[-87.605921,41.780046],
+  [-87.605920,41.779958],[-87.605897,41.778957],[-87.605890,41.778594],[-87.605881,41.778230],
+  [-87.605857,41.777141],[-87.605849,41.776778],[-87.605841,41.776414],[-87.605817,41.775323],
+  [-87.605809,41.774960],[-87.605802,41.774596],[-87.605785,41.773630],[-87.605780,41.773504],
+  [-87.605769,41.773141],[-87.606019,41.773137],[-87.606425,41.773131],[-87.606772,41.773124],
+  [-87.607023,41.773119],[-87.607261,41.773114],[-87.607615,41.773108],[-87.607978,41.773102],
+  [-87.608217,41.773099],[-87.608455,41.773094],[-87.609171,41.773082],[-87.609410,41.773078],
+  [-87.609653,41.773073],[-87.610015,41.773067],[-87.610385,41.773060],[-87.610629,41.773056],
+  [-87.610870,41.773052],[-87.611233,41.773046],[-87.611594,41.773039],[-87.611836,41.773035],
+  [-87.612077,41.773030],[-87.612423,41.773023],[-87.612803,41.773016],[-87.613045,41.773012],
+  [-87.613287,41.773007],[-87.613638,41.773002],[-87.614013,41.772994],[-87.614255,41.772989],
+  [-87.614493,41.772984],[-87.614520,41.772984],[-87.615210,41.772973],[-87.61545,41.77297],
+];
+
+// Canvas / scene dimensions (mirrors App.tsx)
+const CANVAS_WIDTH = 840;
+const CANVAS_HEIGHT = 600;
+const PADDING = 40;
+
+// ═══════════════════════════════════════════════════════════
+//  Scene Projection (ports projectCoordinate from coordinates.ts)
+// ═══════════════════════════════════════════════════════════
+function projectCoordinate(lng, lat) {
+  const { minLng, maxLng, minLat, maxLat } = BOUNDING_BOX;
+  const mapW = CANVAS_WIDTH - PADDING * 2;
+  const mapH = CANVAS_HEIGHT - PADDING * 2;
+  const lngSpan = maxLng - minLng;
+  const latSpan = maxLat - minLat;
+  const avgLatRad = ((minLat + maxLat) / 2) * (Math.PI / 180);
+  const cosLat = Math.cos(avgLatRad);
+  const geoAR = (lngSpan * cosLat) / latSpan;
+  const canvasAR = mapW / mapH;
+
+  let scaleX = mapW / lngSpan;
+  let scaleY = mapH / latSpan;
+  if (canvasAR > geoAR) { scaleX = scaleY * cosLat; }
+  else { scaleY = scaleX / cosLat; }
+
+  const actualW = lngSpan * scaleX;
+  const actualH = latSpan * scaleY;
+  const offX = PADDING + (mapW - actualW) / 2;
+  const offY = PADDING + (mapH - actualH) / 2;
+
+  return {
+    x: offX + (lng - minLng) * scaleX,
+    y: offY + (maxLat - lat) * scaleY,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  State
+// ═══════════════════════════════════════════════════════════
+let drawMode = false;
+let currentRoad = [];          // array of {lng, lat} for the road being drawn
+let roads = [];               // array of arrays of {lng, lat} – completed roads
+let roadPolylines = [];       // Leaflet polylines for completed roads
+let currentPolyline = null;   // Leaflet polyline for road-in-progress
+let nodeMarkers = [];         // all node markers (for snapping visualization)
+let allNodes = [];            // flat list of all unique {lng, lat, id} across all roads
+
+let map;
+let snapMarker = null;        // highlight circle at snap target
+let snapTarget = null;        // {lng, lat} of current snap
+let cursorGhost = null;       // faint ring that always follows cursor in draw mode
+
+const SNAP_PX = 30;           // snap threshold in screen pixels
+const SNAP_MARKER_RADIUS = 8; // visual radius in px for snap indicator
+
+// ═══════════════════════════════════════════════════════════
+//  Init Map
+// ═══════════════════════════════════════════════════════════
+map = L.map('map', {
+  center: [41.7767, -87.6107],
+  zoom: 16,
+  zoomControl: true,
+  attributionControl: false,
+});
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  maxZoom: 20,
+  subdomains: 'abcd',
+}).addTo(map);
+
+// Draw tract boundary
+L.polygon(TRACT_OUTLINE.map(([lng, lat]) => [lat, lng]), {
+  color: '#3b82f6',
+  weight: 2,
+  fillColor: '#3b82f6',
+  fillOpacity: 0.08,
+  dashArray: '6,4',
+}).addTo(map);
+
+// ═══════════════════════════════════════════════════════════
+//  Snap Logic
+// ═══════════════════════════════════════════════════════════
+function findSnap(latlng) {
+  for (const node of allNodes) {
+    const pt = map.latLngToContainerPoint(L.latLng(node.lat, node.lng));
+    const mp = map.latLngToContainerPoint(latlng);
+    const dx = pt.x - mp.x;
+    const dy = pt.y - mp.y;
+    if (Math.hypot(dx, dy) < SNAP_PX) {
+      return node;
+    }
+  }
+  return null;
+}
+
+function updateSnapIndicator(e) {
+  if (!drawMode) return;
+
+  // Always show a faint ghost ring at cursor position so user knows snap is active
+  if (!cursorGhost) {
+    cursorGhost = L.circleMarker(e.latlng, {
+      radius: 5,
+      color: '#a3a3a3',
+      fillColor: 'transparent',
+      fillOpacity: 0,
+      weight: 1.5,
+      dashArray: '3,3',
+      interactive: false,
+      pane: 'overlayPane',
+    }).addTo(map);
+  } else {
+    cursorGhost.setLatLng(e.latlng);
+  }
+
+  const snap = findSnap(e.latlng);
+  if (snap) {
+    snapTarget = snap;
+    if (!snapMarker) {
+      snapMarker = L.circleMarker([snap.lat, snap.lng], {
+        radius: SNAP_MARKER_RADIUS,
+        color: '#22d3ee',
+        fillColor: '#22d3ee',
+        fillOpacity: 0.45,
+        weight: 3,
+        interactive: false,
+        pane: 'markerPane',
+      }).addTo(map);
+    } else {
+      snapMarker.setLatLng([snap.lat, snap.lng]);
+    }
+    map.getContainer().style.cursor = 'pointer';
+  } else {
+    snapTarget = null;
+    if (snapMarker) { map.removeLayer(snapMarker); snapMarker = null; }
+    map.getContainer().style.cursor = 'crosshair';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Node Management
+// ═══════════════════════════════════════════════════════════
+function addNodeToAll(lng, lat) {
+  // Check if already exists (tol ~1e-7)
+  const exists = allNodes.find(n => Math.abs(n.lng - lng) < 1e-7 && Math.abs(n.lat - lat) < 1e-7);
+  if (exists) return exists;
+
+  const id = 'n_' + allNodes.length;
+  const node = { id, lng, lat };
+  allNodes.push(node);
+
+  // Add visible dot on map (snap target)
+  nodeMarkers.push(L.circleMarker([lat, lng], {
+    radius: 3.5,
+    color: '#64748b',
+    fillColor: '#38bdf8',
+    fillOpacity: 0.85,
+    weight: 0,
+    interactive: false,
+  }).addTo(map));
+
+  return node;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Drawing Handlers
+// ═══════════════════════════════════════════════════════════
+function toggleDrawMode() {
+  drawMode = !drawMode;
+  const btn = document.getElementById('btnDraw');
+  if (drawMode) {
+    btn.textContent = 'Drawing... (click to exit)';
+    btn.classList.add('active');
+    map.getContainer().style.cursor = 'crosshair';
+    map.off('click'); map.off('dblclick'); map.off('mousemove');
+    map.on('click', onMapClick);
+    map.on('dblclick', onMapDblClick);
+    map.on('mousemove', updateSnapIndicator);
+  } else {
+    btn.textContent = 'Start Drawing';
+    btn.classList.remove('active');
+    map.getContainer().style.cursor = '';
+    map.off('click'); map.off('dblclick'); map.off('mousemove');
+    // Remove cursor ghost and snap marker
+    if (cursorGhost) { map.removeLayer(cursorGhost); cursorGhost = null; }
+    if (snapMarker) { map.removeLayer(snapMarker); snapMarker = null; }
+    snapTarget = null;
+    finishCurrentRoad(); // auto-finish if any pending
+  }
+}
+
+function onMapClick(e) {
+  if (!drawMode) return;
+
+  const pt = snapTarget || { lng: e.latlng.lng, lat: e.latlng.lat };
+  currentRoad.push({ lng: pt.lng, lat: pt.lat });
+
+  // Update polyline
+  if (currentPolyline) { map.removeLayer(currentPolyline); }
+  currentPolyline = L.polyline(
+    currentRoad.map(p => [p.lat, p.lng]),
+    { color: '#22c55e', weight: 3, dashArray: '8,4' }
+  ).addTo(map);
+
+  updateInfoBar();
+}
+
+function onMapDblClick(e) {
+  if (!drawMode) return;
+  L.DomEvent.preventDefault(e);
+  L.DomEvent.stopPropagation(e);
+  finishCurrentRoad();
+}
+
+function finishCurrentRoad() {
+  if (currentRoad.length < 2) {
+    // Too short, discard
+    currentRoad = [];
+    if (currentPolyline) { map.removeLayer(currentPolyline); currentPolyline = null; }
+    updateInfoBar();
+    return;
+  }
+
+  const roadPoints = [...currentRoad];
+  roads.push(roadPoints);
+
+  // Add nodes to allNodes
+  for (const pt of roadPoints) {
+    addNodeToAll(pt.lng, pt.lat);
+  }
+
+  // Draw permanent polyline
+  const poly = L.polyline(
+    roadPoints.map(p => [p.lat, p.lng]),
+    { color: '#f97316', weight: 2.5, opacity: 0.85 }
+  ).addTo(map);
+  roadPolylines.push(poly);
+
+  // Reset current road
+  currentRoad = [];
+  if (currentPolyline) { map.removeLayer(currentPolyline); currentPolyline = null; }
+  updateInfoBar();
+}
+
+function undoLast() {
+  if (currentRoad.length > 0) {
+    // Undo node within current road
+    currentRoad.pop();
+    if (currentPolyline) { map.removeLayer(currentPolyline); currentPolyline = null; }
+    if (currentRoad.length >= 2) {
+      currentPolyline = L.polyline(
+        currentRoad.map(p => [p.lat, p.lng]),
+        { color: '#22c55e', weight: 3, dashArray: '8,4' }
+      ).addTo(map);
+    }
+  } else if (roads.length > 0) {
+    // Undo last completed road
+    const removed = roads.pop();
+    const poly = roadPolylines.pop();
+    if (poly) { map.removeLayer(poly); }
+    // Rebuild allNodes from remaining roads (simplest approach)
+    rebuildNodes();
+  }
+  updateInfoBar();
+}
+
+function clearAll() {
+  if (!confirm('Clear ALL drawn roads?')) return;
+  roads = [];
+  currentRoad = [];
+  allNodes = [];
+  roadPolylines.forEach(p => map.removeLayer(p));
+  roadPolylines = [];
+  nodeMarkers.forEach(m => map.removeLayer(m));
+  nodeMarkers = [];
+  if (currentPolyline) { map.removeLayer(currentPolyline); currentPolyline = null; }
+  if (snapMarker) { map.removeLayer(snapMarker); snapMarker = null; }
+  if (cursorGhost) { map.removeLayer(cursorGhost); cursorGhost = null; }
+  snapTarget = null;
+  updateInfoBar();
+}
+
+function rebuildNodes() {
+  // Clear all node markers
+  nodeMarkers.forEach(m => map.removeLayer(m));
+  nodeMarkers = [];
+  allNodes = [];
+
+  // Rebuild from roads
+  for (const road of roads) {
+    for (const pt of road) {
+      addNodeToAll(pt.lng, pt.lat);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  JSON Export
+// ═══════════════════════════════════════════════════════════
+function exportJSON() {
+  // Rebuild nodes from all roads
+  rebuildNodes();
+
+  // Build StreetGrid: nodes with scene positions, edges between consecutive road points
+  const streetNodes = allNodes.map(n => {
+    const pos = projectCoordinate(n.lng, n.lat);
+    return { id: n.id, position: pos, isIntersection: false };
+  });
+
+  // Map lng/lat -> node id for edge building
+  const coordToId = new Map();
+  for (const n of allNodes) {
+    coordToId.set(`${n.lng.toFixed(7)},${n.lat.toFixed(7)}`, n.id);
+  }
+
+  const edgeSet = new Set();
+  const streetEdges = [];
+  let edgeId = 0;
+
+  for (const road of roads) {
+    for (let i = 0; i < road.length - 1; i++) {
+      const aKey = `${road[i].lng.toFixed(7)},${road[i].lat.toFixed(7)}`;
+      const bKey = `${road[i+1].lng.toFixed(7)},${road[i+1].lat.toFixed(7)}`;
+      const aId = coordToId.get(aKey);
+      const bId = coordToId.get(bKey);
+      if (!aId || !bId || aId === bId) continue;
+
+      const edgeKey = [aId, bId].sort().join('_');
+      if (edgeSet.has(edgeKey)) continue;
+      edgeSet.add(edgeKey);
+
+      const aPos = projectCoordinate(road[i].lng, road[i].lat);
+      const bPos = projectCoordinate(road[i+1].lng, road[i+1].lat);
+      const dist = Math.hypot(bPos.x - aPos.x, bPos.y - aPos.y);
+
+      streetEdges.push({
+        id: `e_${edgeId++}`,
+        from: aId,
+        to: bId,
+        distance: Math.round(dist * 100) / 100,
+      });
+    }
+  }
+
+  // Tag intersections (degree >= 3)
+  const degree = new Map();
+  for (const e of streetEdges) {
+    degree.set(e.from, (degree.get(e.from) || 0) + 1);
+    degree.set(e.to, (degree.get(e.to) || 0) + 1);
+  }
+  for (const n of streetNodes) {
+    if ((degree.get(n.id) || 0) >= 3) n.isIntersection = true;
+  }
+
+  const grid = { nodes: streetNodes, edges: streetEdges };
+
+  // Also prepare GPS version for reference
+  const gpsRoads = roads.map(road => road.map(p => ({ lng: p.lng, lat: p.lat })));
+
+  const output = {
+    version: 1,
+    description: 'Hand-drawn road network for tract 4207 (Chicago)',
+    canvasDimensions: { width: CANVAS_WIDTH, height: CANVAS_HEIGHT, padding: PADDING },
+    boundingBox: BOUNDING_BOX,
+    roadCount: roads.length,
+    nodeCount: streetNodes.length,
+    edgeCount: streetEdges.length,
+    // The main grid used by the simulation
+    grid,
+    // GPS roads for reference / reimport
+    gpsRoads,
+  };
+
+  const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'tract4207_road_network.json';
+  a.click();
+  URL.revokeObjectURL(url);
+
+  console.log('[EXPORT]', JSON.stringify(output, null, 2));
+  alert(
+    `Exported!\n` +
+    `Nodes: ${streetNodes.length}\n` +
+    `Edges: ${streetEdges.length}\n` +
+    `Roads: ${roads.length}\n` +
+    `Intersections: ${streetNodes.filter(n => n.isIntersection).length}`
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Import JSON (reload previously exported network)
+// ═══════════════════════════════════════════════════════════
+function importJSON() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (data.gpsRoads && Array.isArray(data.gpsRoads)) {
+          clearAll();
+          for (const gpsRoad of data.gpsRoads) {
+            const road = gpsRoad.map(p => ({ lng: p.lng, lat: p.lat }));
+            roads.push(road);
+            for (const pt of road) { addNodeToAll(pt.lng, pt.lat); }
+            roadPolylines.push(L.polyline(
+              road.map(p => [p.lat, p.lng]),
+              { color: '#f97316', weight: 2.5, opacity: 0.85 }
+            ).addTo(map));
+          }
+          updateInfoBar();
+          alert(`Loaded ${data.gpsRoads.length} roads with ${allNodes.length} nodes.`);
+        } else {
+          alert('Invalid file: missing gpsRoads array.');
+        }
+      } catch (err) {
+        alert('Failed to parse JSON: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Info Bar
+// ═══════════════════════════════════════════════════════════
+function updateInfoBar() {
+  // Count edges
+  let edgeCount = 0;
+  const coordToIdMap = new Map();
+  for (const n of allNodes) {
+    coordToIdMap.set(`${n.lng.toFixed(7)},${n.lat.toFixed(7)}`, n.id);
+  }
+  const eSet = new Set();
+  for (const road of roads) {
+    for (let i = 0; i < road.length - 1; i++) {
+      const ak = `${road[i].lng.toFixed(7)},${road[i].lat.toFixed(7)}`;
+      const bk = `${road[i+1].lng.toFixed(7)},${road[i+1].lat.toFixed(7)}`;
+      const aid = coordToIdMap.get(ak);
+      const bid = coordToIdMap.get(bk);
+      if (aid && bid && aid !== bid) {
+        const ek = [aid, bid].sort().join('_');
+        eSet.add(ek);
+      }
+    }
+  }
+  edgeCount = eSet.size;
+  document.getElementById('infoBar').textContent =
+    `Nodes: ${allNodes.length}  |  Roads: ${roads.length}  |  Edges: ${edgeCount}`;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Keyboard Shortcuts
+// ═══════════════════════════════════════════════════════════
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (drawMode) toggleDrawMode();
+  }
+  if (e.ctrlKey && e.key === 'z') {
+    e.preventDefault();
+    undoLast();
+  }
+  if (e.ctrlKey && e.key === 's') {
+    e.preventDefault();
+    exportJSON();
+  }
+});
+
+// Resize snap indicator on zoom
+map.on('zoom', () => {
+  if (snapTarget && snapMarker) {
+    snapMarker.setLatLng([snapTarget.lat, snapTarget.lng]);
+  }
+});
+
+updateInfoBar();
+</script>
+</body>
+</html>

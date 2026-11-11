@@ -1,0 +1,9 @@
+llama-index
+llama-index-embeddings-huggingface
+sentence-transformers
+pandas
+pyyaml
+pypdf
+pdfplumber
+python-docx
+flask

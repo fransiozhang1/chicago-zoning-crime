@@ -1,0 +1,15 @@
+﻿indicator,mean,std,importance_score,importance_rank,spearman_rho,direction
+Natural Surveillance (自然监视),1.977,1.9743,32.97455028805904,7,0.4917202118977485,positive_association
+Street Lights One-Out (单盏街灯故障),17.0,,30.34760490799619,9,0.4979371973320601,positive_association
+Street Image Count (街景图像数),1000.0,,20.52519057094777,21,-0.3508232077228116,negative_association
+Street Lights All-Out (整段街灯全灭),19.0,,15.531922139170792,34,-0.3796427250377033,negative_association
+Disorder (失序度),-0.7595,1.5199,13.913572471354223,44,-0.2430976328483251,negative_association
+Traffic Control (交通控制),0.1917,0.3336,10.388797635924748,57,0.2265227942450302,positive_association
+Walkability (步行性),5.9133,3.3905,9.141886846914486,65,0.1712733322340472,positive_association
+Green Exposure (绿化暴露),26.0168,17.4635,8.603561698140204,68,0.1878481708373421,positive_association
+Street Enclosure (围合度),-26.6973,15.7808,7.69955033766556,70,0.1325987088263591,positive_association
+Vehicle Dominance (车辆主导),3.6915,4.5955,7.236307083639343,73,-0.1215488164241625,negative_association
+Street Activity (街道活动),0.0632,0.1749,6.919805833892657,75,-0.1104989240219659,negative_association
+Territoriality (领域性),28.114,17.7418,6.768671717012774,77,0.1436486012285557,positive_association
+Total Lights Out (灯光故障总计),43.0,,4.756680390794285,84,0.0907841299003203,unclear
+Alley Lights Out (巷道灯故障),7.0,,2.06421865820823,100,0.0109890109890109,unclear

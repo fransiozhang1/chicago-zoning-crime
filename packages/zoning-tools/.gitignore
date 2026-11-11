@@ -1,0 +1,28 @@
+# Outputs (generated) — too large, users generate their own
+outputs/
+
+# Large data files — these are raw inputs not code
+data/homicide_unified/
+data/census_tracts/
+data/zoning_maps/
+data/crime/
+data/population/
+
+# Temp / helper scripts
+filter_setbacks.py
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,6 @@
+pandas
+numpy
+geopandas
+shapely
+pypdf
+python-docx

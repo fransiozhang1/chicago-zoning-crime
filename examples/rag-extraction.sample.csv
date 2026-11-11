@@ -1,0 +1,5 @@
+zone_class,parameter,value,unit,status,evidence,source_file,page_number,table_id,extraction_method
+RT4,max_far,1.5,ratio,found,Illustrative value for a synthetic scenario.,synthetic-ordinance.pdf,12,example-table,rag_found
+RT-4,max_height,42,feet,found,Illustrative height for the same scenario.,synthetic-ordinance.pdf,12,example-table,rag_found
+RT-4,front_setback,18,feet,found,Illustrative setback for the same scenario.,synthetic-ordinance.pdf,13,example-table,rag_found
+RT-4,parking_requirement,0.75,spaces per dwelling unit,inferred,Illustrates a row excluded from the handoff.,synthetic-ordinance.pdf,15,,inference
